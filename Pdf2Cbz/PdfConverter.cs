@@ -98,7 +98,7 @@ public static class PdfConverter
                 var rawBytes = img.RawBytes.ToArray();
                 if (rawBytes.Length >= 2 && rawBytes[0] == 0xFF && rawBytes[1] == 0xD8)
                 {
-                    File.WriteAllBytes(filePath, rawBytes.ToArray());
+                    SaveWithCropIfNeeded(rawBytes, img, page, filePath);
                     log($"Page {info.PageNum}/{totalPages}: extracted raw JPEG");
                     continue;
                 }
@@ -106,9 +106,7 @@ public static class PdfConverter
                 // Otherwise decode and re-encode as JPEG
                 if (img.TryGetPng(out var pngBytes))
                 {
-                    using var ms = new MemoryStream(pngBytes);
-                    using var bmp = new Bitmap(ms);
-                    bmp.Save(filePath, JpegCodec, JpegParams);
+                    SaveWithCropIfNeeded(pngBytes, img, page, filePath);
                     log($"Page {info.PageNum}/{totalPages}: extracted image");
                     continue;
                 }
@@ -180,6 +178,54 @@ public static class PdfConverter
         finally
         {
             try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    private static void SaveWithCropIfNeeded(byte[] imageBytes, IPdfImage img, Page page, string filePath)
+    {
+        using var ms = new MemoryStream(imageBytes);
+        using var bmp = new Bitmap(ms);
+
+        // Check if the image needs cropping: the raw image may be larger than the
+        // visible area defined by the bounding box relative to the page.
+        var bounds = img.BoundingBox;
+        bool needsCrop = false;
+        int cropX = 0, cropY = 0, cropW = bmp.Width, cropH = bmp.Height;
+
+        if (bmp.Width > 0 && bmp.Height > 0 && bounds.Width > 0 && bounds.Height > 0)
+        {
+            // Compute the scale: how many pixels per PDF point
+            double scaleX = bmp.Width / bounds.Width;
+            double scaleY = bmp.Height / bounds.Height;
+
+            // The bounding box bottom-left in page coordinates tells us the offset.
+            // If the image extends beyond the page, we need to crop.
+            // PDF origin is bottom-left; image origin is top-left.
+            double visibleLeft = Math.Max(0, -bounds.Left) * scaleX;
+            double visibleBottom = Math.Max(0, -bounds.Bottom) * scaleY;
+            double visibleRight = Math.Max(0, bounds.Right - page.Width) * scaleX;
+            double visibleTop = Math.Max(0, bounds.Top - page.Height) * scaleY;
+
+            if (visibleLeft > 0.5 || visibleTop > 0.5 || visibleRight > 0.5 || visibleBottom > 0.5)
+            {
+                cropX = (int)Math.Round(visibleLeft);
+                cropY = (int)Math.Round(visibleTop);
+                cropW = bmp.Width - cropX - (int)Math.Round(visibleRight);
+                cropH = bmp.Height - cropY - (int)Math.Round(visibleBottom);
+                cropW = Math.Max(1, cropW);
+                cropH = Math.Max(1, cropH);
+                needsCrop = true;
+            }
+        }
+
+        if (needsCrop)
+        {
+            using var cropped = bmp.Clone(new Rectangle(cropX, cropY, cropW, cropH), bmp.PixelFormat);
+            cropped.Save(filePath, JpegCodec, JpegParams);
+        }
+        else
+        {
+            bmp.Save(filePath, JpegCodec, JpegParams);
         }
     }
 
