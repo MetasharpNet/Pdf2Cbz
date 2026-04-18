@@ -172,7 +172,7 @@ public static class PdfConverter
             if (File.Exists(cbzPath))
                 File.Delete(cbzPath);
 
-            ZipFile.CreateFromDirectory(tempDir, cbzPath, CompressionLevel.NoCompression, false);
+            ZipFile.CreateFromDirectory(tempDir, cbzPath, CompressionLevel.SmallestSize, false);
             log($"✓ Created: {Path.GetFileName(cbzPath)}");
         }
         finally
