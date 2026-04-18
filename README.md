@@ -14,7 +14,7 @@ Created by **Metasharp**.
 - **Per-page resolution** — Each page is analyzed and rendered individually, correctly handling mixed portrait/landscape and varying page sizes (A4, A3, Italian format, double-page spreads…)
 - **JPEG 97% output** — Non-raw pages are saved as JPEG at 97% quality for an excellent size/quality ratio (0 visual difference with 100%)
 - **Auto page numbering** — Pages are named with zero-padded numbers adapted to the total page count (`01.jpg`, `001.jpg`, `0001.jpg`…)
-- **CBZ output** — Images are packaged into an uncompressed ZIP with `.cbz` extension, placed next to the source PDF
+- **CBZ output** — Images are packaged into a max compression ZIP with `.cbz` extension, placed next to the source PDF
 
 ## Screenshot
 
