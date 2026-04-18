@@ -12,9 +12,9 @@ Created by **Metasharp**.
 - **Raw JPEG extraction** — When a page is a single embedded JPEG, the original bytes are extracted as-is, with zero quality loss and no re-encoding
 - **Smart composite rendering** — Pages with tiles, text overlays or mixed content are rendered at the optimal resolution, computed from an area-weighted average of tile DPIs (clamped 72–300 DPI)
 - **Per-page resolution** — Each page is analyzed and rendered individually, correctly handling mixed portrait/landscape and varying page sizes (A4, A3, Italian format, double-page spreads…)
-- **JPEG 97% output** — Non-raw pages are saved as JPEG at 97% quality for an excellent size/quality ratio
+- **JPEG 97% output** — Non-raw pages are saved as JPEG at 97% quality for an excellent size/quality ratio (0 visual difference with 100%)
 - **Auto page numbering** — Pages are named with zero-padded numbers adapted to the total page count (`01.jpg`, `001.jpg`, `0001.jpg`…)
-- **CBZ output** — Images are packaged into an uncompressed ZIP with `.cbz` extension, placed next to the source PDF
+- **CBZ output** — Images are packaged into a max compression ZIP with `.cbz` extension, placed next to the source PDF
 
 ## Screenshot
 
