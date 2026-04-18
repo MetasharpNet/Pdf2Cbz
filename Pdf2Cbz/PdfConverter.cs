@@ -1,0 +1,177 @@
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.IO.Compression;
+using System.Runtime.InteropServices;
+using Docnet.Core;
+using Docnet.Core.Models;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+
+namespace Pdf2Cbz;
+
+public static class PdfConverter
+{
+    private static readonly ImageCodecInfo JpegCodec = ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+    private static readonly EncoderParameters JpegParams = new(1) { Param = { [0] = new EncoderParameter(Encoder.Quality, 97L) } };
+
+    public static async Task ConvertAsync(string pdfPath, Action<string> log, CancellationToken ct)
+    {
+        await Task.Run(() => Convert(pdfPath, log, ct), ct);
+    }
+
+    private static void Convert(string pdfPath, Action<string> log, CancellationToken ct)
+    {
+        string cbzPath = Path.ChangeExtension(pdfPath, ".cbz");
+        string tempDir = Path.Combine(Path.GetTempPath(), "Pdf2Cbz_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            using var pdf = PdfDocument.Open(pdfPath);
+            int totalPages = pdf.NumberOfPages;
+            int digits = totalPages switch
+            {
+                < 10 => 1,
+                < 100 => 2,
+                < 1000 => 3,
+                _ => 4
+            };
+
+            // Analyze each page
+            var pageData = new List<PageInfo>();
+
+            for (int i = 1; i <= totalPages; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var page = pdf.GetPage(i);
+                var images = page.GetImages().ToList();
+
+                if (images.Count == 1)
+                {
+                    var img = images[0];
+                    var bounds = img.BoundingBox;
+                    double coverage = (bounds.Width * bounds.Height) / (page.Width * page.Height);
+                    if (coverage > 0.85)
+                    {
+                        pageData.Add(new PageInfo(i, true, 0, page.Width, page.Height));
+                        continue;
+                    }
+                }
+
+                // Composite page: compute effective DPI as area-weighted average of tile DPIs
+                double weightedDpiSum = 0;
+                double totalArea = 0;
+                foreach (var img in images)
+                {
+                    if (img.BoundingBox.Width > 0 && img.BoundingBox.Height > 0)
+                    {
+                        double dpiX = img.WidthInSamples / (img.BoundingBox.Width / 72.0);
+                        double dpiY = img.HeightInSamples / (img.BoundingBox.Height / 72.0);
+                        double tileDpi = Math.Max(dpiX, dpiY);
+                        double area = img.BoundingBox.Width * img.BoundingBox.Height;
+                        weightedDpiSum += tileDpi * area;
+                        totalArea += area;
+                    }
+                }
+                double effectiveDpi = totalArea > 0 ? weightedDpiSum / totalArea : 150;
+                effectiveDpi = Math.Clamp(effectiveDpi, 72, 300);
+
+                pageData.Add(new PageInfo(i, false, effectiveDpi, page.Width, page.Height));
+            }
+
+            // Pass 1: extract single-image pages directly
+            for (int idx = 0; idx < pageData.Count; idx++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var info = pageData[idx];
+                if (!info.SingleImage) continue;
+
+                string fileName = info.PageNum.ToString().PadLeft(digits, '0') + ".jpg";
+                string filePath = Path.Combine(tempDir, fileName);
+
+                var page = pdf.GetPage(info.PageNum);
+                var img = page.GetImages().First();
+
+                // If the image is already JPEG-encoded in the PDF, save raw bytes directly
+                var rawBytes = img.RawBytes.ToArray();
+                if (rawBytes.Length >= 2 && rawBytes[0] == 0xFF && rawBytes[1] == 0xD8)
+                {
+                    File.WriteAllBytes(filePath, rawBytes.ToArray());
+                    log($"Page {info.PageNum}/{totalPages}: extracted raw JPEG");
+                    continue;
+                }
+
+                // Otherwise decode and re-encode as JPEG
+                if (img.TryGetPng(out var pngBytes))
+                {
+                    using var ms = new MemoryStream(pngBytes);
+                    using var bmp = new Bitmap(ms);
+                    bmp.Save(filePath, JpegCodec, JpegParams);
+                    log($"Page {info.PageNum}/{totalPages}: extracted image");
+                    continue;
+                }
+
+                // PNG extraction failed, fall back to rendering
+                double dpi = 150;
+                if (img.BoundingBox.Width > 0 && img.BoundingBox.Height > 0)
+                {
+                    dpi = Math.Clamp(Math.Max(
+                        img.WidthInSamples / (img.BoundingBox.Width / 72.0),
+                        img.HeightInSamples / (img.BoundingBox.Height / 72.0)), 72, 300);
+                }
+                pageData[idx] = new PageInfo(info.PageNum, false, dpi, info.PageWidth, info.PageHeight);
+            }
+
+            // Pass 2: render composite pages (and failed extractions)
+            var compositePages = pageData.Where(p => !p.SingleImage).ToList();
+            if (compositePages.Count > 0)
+            {
+                using var docLib = DocLib.Instance;
+
+                foreach (var info in compositePages)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    string fileName = info.PageNum.ToString().PadLeft(digits, '0') + ".jpg";
+                    string filePath = Path.Combine(tempDir, fileName);
+
+                    // Compute per-page pixel dimensions from its own size and DPI
+                    int pixW = (int)Math.Ceiling(info.PageWidth * info.Dpi / 72.0);
+                    int pixH = (int)Math.Ceiling(info.PageHeight * info.Dpi / 72.0);
+                    int dimSmall = Math.Min(pixW, pixH);
+                    int dimLarge = Math.Max(pixW, pixH);
+
+                    using var reader = docLib.GetDocReader(pdfPath, new PageDimensions(dimSmall, dimLarge));
+                    using var pageReader = reader.GetPageReader(info.PageNum - 1);
+                    int w = pageReader.GetPageWidth();
+                    int h = pageReader.GetPageHeight();
+                    var rawBytes = pageReader.GetImage();
+
+                    using var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+                    var bmpData = bmp.LockBits(
+                        new Rectangle(0, 0, w, h),
+                        ImageLockMode.WriteOnly,
+                        PixelFormat.Format32bppArgb);
+
+                    Marshal.Copy(rawBytes, 0, bmpData.Scan0, Math.Min(rawBytes.Length, bmpData.Stride * h));
+                    bmp.UnlockBits(bmpData);
+                    bmp.Save(filePath, JpegCodec, JpegParams);
+
+                    log($"Page {info.PageNum}/{totalPages}: rendered at {info.Dpi:F0} DPI ({w}x{h})");
+                }
+            }
+
+            // Create CBZ
+            if (File.Exists(cbzPath))
+                File.Delete(cbzPath);
+
+            ZipFile.CreateFromDirectory(tempDir, cbzPath, CompressionLevel.NoCompression, false);
+            log($"✓ Created: {Path.GetFileName(cbzPath)}");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    private record PageInfo(int PageNum, bool SingleImage, double Dpi, double PageWidth, double PageHeight);
+}
