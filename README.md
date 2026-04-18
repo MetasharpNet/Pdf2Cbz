@@ -62,3 +62,7 @@ PDF page
 ## License
 
 MIT
+
+## Statistics
+
+GitHub Downloads stats : https://hanadigital.github.io/grev/?user=MetasharpNet&repo=Pdf2Cbz
