@@ -46,7 +46,9 @@ public static class PdfConverter
                 var page = pdf.GetPage(i);
                 var images = page.GetImages().ToList();
 
-                if (images.Count == 1)
+                bool hasText = !string.IsNullOrWhiteSpace(page.Text);
+
+                if (!hasText && images.Count == 1)
                 {
                     var img = images[0];
                     var bounds = img.BoundingBox;
@@ -154,7 +156,15 @@ public static class PdfConverter
 
                     Marshal.Copy(rawBytes, 0, bmpData.Scan0, Math.Min(rawBytes.Length, bmpData.Stride * h));
                     bmp.UnlockBits(bmpData);
-                    bmp.Save(filePath, JpegCodec, JpegParams);
+
+                    // Draw onto a white background so transparent areas don't turn black in JPEG
+                    using var final = new Bitmap(w, h, PixelFormat.Format24bppRgb);
+                    using (var g = Graphics.FromImage(final))
+                    {
+                        g.Clear(Color.White);
+                        g.DrawImage(bmp, 0, 0, w, h);
+                    }
+                    final.Save(filePath, JpegCodec, JpegParams);
 
                     log($"Page {info.PageNum}/{totalPages}: rendered at {info.Dpi:F0} DPI ({w}x{h})");
                 }

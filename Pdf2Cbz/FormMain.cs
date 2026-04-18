@@ -7,6 +7,7 @@ namespace Pdf2Cbz
         public FormMain()
         {
             InitializeComponent();
+            Icon = new Icon(typeof(FormMain).Assembly.GetManifestResourceStream("Pdf2Cbz.app.ico")!);
         }
 
         private void LblDropZone_DragEnter(object? sender, DragEventArgs e)
