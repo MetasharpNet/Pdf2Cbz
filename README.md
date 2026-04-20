@@ -9,6 +9,7 @@ Created by **Metasharp**.
 ## How to support?
 
 1- Star this github repository
+
 2- Tip me on : https://ko-fi.com/metasharp
 
 ## Features
