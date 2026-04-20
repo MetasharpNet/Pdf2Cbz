@@ -6,6 +6,10 @@ A lightweight Windows desktop app that converts PDF files into CBZ archives (Com
 
 Created by **Metasharp**.
 
+## How to support?
+
+https://ko-fi.com/metasharp
+
 ## Features
 
 - **Drag & drop** — Drop PDF files or entire folders (recursive scan of subfolders)
