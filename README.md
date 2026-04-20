@@ -8,7 +8,8 @@ Created by **Metasharp**.
 
 ## How to support?
 
-https://ko-fi.com/metasharp
+1- Star this github repository
+2- Tip me on : https://ko-fi.com/metasharp
 
 ## Features
 
